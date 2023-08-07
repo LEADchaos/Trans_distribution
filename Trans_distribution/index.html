@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport"
+			content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no" />
+		<title></title>
+		<script src="js/mui.min.js"></script>
+		<script type="text/javascript" src="js/aui-toast.js"></script>
+		<script src="js/jquery-1.9.1.min.js"></script>
+		<link rel="stylesheet" type="text/css" href="css/ui.css">
+		<link href="css/mui.min.css" rel="stylesheet" />
+		<style type="text/css">
+			.content {
+				margin-top: 5px;
+				width: 95%;
+			}
+
+			/* img {
+				width: 100px;
+				height: 100px;
+				margin: 10px;
+				float: left;
+			} */
+
+			.mui-bar .mui-icon span {
+				font-size: 18px;
+			}
+
+			.mui-icon-checkmarkempty {
+				color: #007aff;
+				float: right;
+				margin-right: 5px;
+			}
+
+			.mui-icon-location {
+				color: #007aff;
+			}
+
+			.mui-table-view {
+				margin: 8px;
+			}
+
+			.position {
+				width: 80%;
+				text-align: center;
+				background: white;
+				line-height: 30px;
+				font-size: 20px;
+			}
+
+			#dwtupiao {
+				width: 100px;
+				height: 100px;
+
+
+				width: 20px;
+				height: 20px;
+				float: left;
+				margin: 0;
+			}
+
+			.table-container {
+				width: 100%;
+				overflow-x: auto;
+				margin-top: 10px;
+			}
+
+			#info_table {
+				width: 100%;
+				border-collapse: collapse;
+				border: none;
+				/* 去掉表格的外边框线 */
+			}
+
+			#info_table td {
+				padding: 6px;
+				border: none;
+				/* 去掉单元格之间的分隔线 */
+			}
+
+			#info_table td:last-child {
+				text-align: left;
+			}
+		</style>
+		<script type="text/javascript" charset="utf-8">
+			mui.init();
+			var address;
+			var jingDu;
+			var weiDu;
+			var host = 'http://114.115.156.201:8087';
+			var toast = new auiToast({});
+			mui.plusReady(function() {
+				//使用mui框架获取当前的版本号
+				mui.getJSON("manifest.json", null, function(data) {
+					vum = data.version.name;
+					console.log("当前的版本号:" + vum);
+					// 页面加载时调用 svn 函数以检查更新
+					svn(vum);
+				})
+
+				// 给退出登录按钮添加点击事件
+				$("#logoutButton").click(function() {
+					logout();
+				});
+
+				getInfo()
+				document.getElementById('getPosition').addEventListener('tap', function() {
+					getGeocode();
+				})
+
+
+			})
+
+			// 退出登录函数
+			function logout() {
+				// 清除登录状态和用户信息
+				localStorage.removeItem('$state');
+				localStorage.removeItem('user');
+				// 跳转到登录页面
+				// 这里你需要根据实际情况修改登录页面的URL
+				mui.openWindow({
+					url: 'login.html',
+					id: 'login',
+					createNew: false
+				});
+			}
+
+			function getInfo() {
+
+				url = host + '/selectAll' + '?_=' + Date.parse(new Date());
+				$.ajax({
+					type: 'POST',
+					url: url,
+					cache: false,
+					async: true, // true（异步）, false（同步）
+					success: function(result) {
+						if (result.code == 1 || result.code == '1') {
+							// 请求成功
+							addRows(result.msg)
+						} else {
+							toast.fail({
+								title: result.msg,
+								duration: 2000
+							});
+						}
+
+					},
+					error: function(XMLHttpRequest, textStatus, errorThrown) {
+						console.log("ajax请求失败" + textStatus);
+
+						toast.fail({
+							title: "获取数据信息失败",
+							duration: 2000
+						});
+					}
+				})
+			}
+
+			function addRows(data) {
+				console.log("获取运输信息：" + JSON.stringify(data));
+
+				var info_table = $('#info_table').find('tbody');
+				info_table.empty();
+
+				for (var n = 0; n < data.length; n++) {
+					bottleid = data[n]['bottleid'];
+					transstate = data[n]['transstate'] == null ? '无' : data[n]['transstate'];
+					info_text = '气瓶：' + bottleid + '   状态：' + transstate;
+
+					if (data[n]['endtime'] == null) {
+						info_date = data[n]['starttime'];
+					} else {
+						info_date = data[n]['endtime'];
+					}
+
+					// 创建第一行用于显示气瓶信息
+					var row1 = $('<tr></tr>');
+					var cell1 = $('<td></td>').text(info_text);
+					row1.append(cell1);
+					info_table.append(row1);
+
+					// 创建第二行用于显示时间信息，靠右显示
+					var row2 = $('<tr></tr>');
+					var cell2 = $('<td></td>').text(info_date);
+					cell2.css('text-align', 'right'); // 将时间信息靠右显示
+					row2.append(cell2);
+					info_table.append(row2);
+
+					// 添加横线，除了最后一行数据外，都添加横线
+					if (n !== data.length - 1) {
+						var lineRow = $('<tr></tr>');
+						var lineCell = $('<td colspan="2"></td>'); // 合并两列，横线填满整行
+						lineCell.css('border-top', '1px solid #ccc');
+						lineRow.append(lineCell);
+						info_table.append(lineRow);
+					}
+				}
+			}
+
+			// 通过定位模块获取位置信息
+			function getGeocode() {
+				plus.nativeUI.showWaiting();
+				var getOptions = { //是否使用高精度设备，如GPS。默认是true  
+					enableHighAccuracy: true,
+					//超时时间，单位毫秒，默认为0  
+					timeout: 5000,
+					//使用设置时间内的缓存数据，单位毫秒  
+					//默认为0，即始终请求新数据  
+					//如设为Infinity，则始终使用缓存数据  
+					maximumAge: 1000,
+					provider: "baidu"
+				};
+				plus.geolocation.getCurrentPosition(showLocation, function(e) {
+					plus.nativeUI.closeWaiting();
+					document.getElementById('dwtext').innerHTML = '获取位置失败';
+				}, getOptions);
+
+			}
+
+			//处理定位后的信息
+			function showLocation(r) {
+
+				jingDu = r.coords.longitude;
+				//alert("jingDu:"+jingDu);
+				document.getElementById('dwjingdu').innerHTML = "经度：" + jingDu;
+				weiDu = r.coords.latitude;
+				//alert("weiDu:"+weiDu);
+				document.getElementById('dwweidu').innerHTML = "维度：" + weiDu;
+				address = r.addresses;
+				plus.nativeUI.closeWaiting();
+				document.getElementById('dwtext').innerHTML = address;
+				//	centerPointer = new BMap.Point(r.coords.longitude, r.coords.latitude);
+				//	exchange();
+				info = {
+					'jingdu': jingDu,
+					'weidu': weiDu,
+					'address': address,
+				}
+				localStorage.setItem('coordInfo', JSON.stringify(info))
+			}
+
+			// 在线版本更新函数
+			function svn(t) {
+				var xhr = new plus.net.XMLHttpRequest();
+				xhr.onreadystatechange = function() {
+					if (xhr.readyState == 4) {
+						if (xhr.status == 200) {
+							var res = JSON.parse(xhr.responseText);
+							if (res.state == 'yes') {
+								if (res.mark > t) {
+									console.log(res.mark);
+									var upr;
+									plus.nativeUI.confirm('有新版本发布了，是否更新？', function(e) {
+										upr = (e.index == 0) ? 'Y' : 'N';
+										if (upr == 'Y') {
+											var wt = plus.nativeUI.showWaiting('下载更新中，请勿关闭');
+											var url = res.url;
+											var dtask = plus.downloader.createDownload(url, {}, function(d, status) {
+												if (status == 200) {
+													var path = d.filename;
+													console.log(path);
+													plus.runtime.install(path);
+												} else {
+													alert('下载失败:' + status);
+												}
+											});
+											dtask.start();
+										} else {
+											// 用户选择不更新
+										}
+									}, '运输端发布了新版本是否更新', ['确认', '取消']);
+								} else {
+									console.log('最新');
+								}
+							}
+						} else {
+							console.log(xhr.status);
+							plus.nativeUI.toast('网络连接错误!');
+						}
+					}
+				}
+				xhr.open('GET', 'http://114.115.156.201/LPG/Trans_update.json');
+				xhr.send();
+			}
+		</script>
+	</head>
+	<body>
+		<div class="aui-container">
+			<div class="aui-page">
+				<div class="aui-t-header">
+					<div class="header">
+						<div class="header-background"></div>
+						<div class="toolbar statusbar-padding">
+							<button class="bar-button back-button" onclick="logout()"><i
+									class="icon icon-back"></i></button>
+							<div class="header-title">
+								<div class="title">运输端</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="aui-s-title b-line">
+					<div class="aui-s-content">
+						<div class="header-title" style="display: flex; flex-direction: column;">
+							<div class="store-info" style="display: flex; align-items: center; margin-bottom: 10px;">
+								<span id="name" style="margin: 0; font-size: 24px;">运输端</span>
+								<!-- <button id="logoutButton" class="mui-btn mui-btn-primary"
+									style="margin-left: 40%;">退出登录</button> -->
+							</div>
+							<div>
+								<p>运输端用于扫描气罐</p>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="devider b-line"></div>
+				<!-- 按钮列表 begin -->
+				<div class="aui-btn-content">
+					<div class="aui-btn-list">
+						<!-- button begin-->
+
+						<div class="aui-btn-item">
+							<div id="daogangImgDiv"
+								style="height: 220px;align-content: center;margin: auto;text-align: center;display: none;"
+								;>
+								<img height="200px" src="" id="daogangImg">
+
+							</div>
+
+							<!-- <div id="daogangImgInfo" style="text-align: center;display: none;"><label
+									id="daogangImgInfoLabel">显示序列号</label></div> -->
+
+
+							<!-- <a href="scan.html" class="btn btn-confirm" id="scan_tank">扫描气罐</a> -->
+							<!-- <a href="scanLoadCar.html" class="btn btn-confirm" id="scan_tank">气罐装车</a>
+							<a href="scanUnloadCar.html" class="btn btn-confirm" id="scan_tank">气罐卸车</a> -->
+							<!-- <label for="photo" type="button" class="btn btn-confirm"></label> -->
+
+
+							<a class="btn btn-confirm" id="photograph-identify1">拍照</a>
+
+							<a class="btn btn-confirm" id="photograph-identify"
+								onclick="executePhotographIdentify()">气罐装车</a>
+							<a class="btn btn-confirm" id="photograph-unload"
+								onclick="executePhotographUnload()">气罐卸车</a>
+
+							<script type="text/javascript">
+								var photographIdentifyLoaded = false;
+								var photographUnloadLoaded = false;
+
+								function executePhotographIdentify() {
+									if (!photographIdentifyLoaded) {
+										var script = document.createElement('script');
+										script.type = 'text/javascript';
+										script.src = 'js/photograph-identify.js';
+										document.head.appendChild(script);
+										photographIdentifyLoaded = true;
+									}
+								}
+
+								function executePhotographUnload() {
+									if (!photographUnloadLoaded) {
+										var script = document.createElement('script');
+										script.type = 'text/javascript';
+										script.src = 'js/photograph-unload.js';
+										document.head.appendChild(script);
+										photographUnloadLoaded = true;
+									}
+								}
+							</script>
+						</div>
+					</div>
+				</div>
+				<ul class="mui-table-view">
+					<li id="getPosition" class="mui-table-view-cell">
+						<img id="dwtupiao" src="images/dinwgei.png" />
+						<p id="dwtext">我的位置</p>
+						<p id="dwjingdu">经度</p>
+						<p id="dwweidu">维度</p>
+					</li>
+				</ul>
+				<!-- 按钮列表 end -->
+				<div class="devider b-line"></div>
+
+				<!-- 在页面中添加更新后的表格容器 -->
+				<div class="table-container">
+					<table id="info_table">
+						<thead>
+						</thead>
+						<tbody></tbody>
+					</table>
+				</div>
+				<!-- 文字列表 begin -->
+				<div class="aui-l-content">
+					<div class="aui-menu-list">
+					</div>
+				</div>
+				<!-- 文字列表 end -->
+
+			</div>
+		</div>
+
+	</body>
+</html>
